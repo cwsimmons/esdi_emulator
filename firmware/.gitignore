@@ -1,0 +1,7 @@
+.metadata/
+esdi_emulator/_ide/
+esdi_emulator_platform/
+esdi_emulator_system/_ide/
+RemoteSystemsTempFiles/
+.analytics
+IDE.log
