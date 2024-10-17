@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>esdi_emulator_system</name>
-	<comment></comment>
+	<name>esdi_emulator_app</name>
+	<comment>Created by Vitis v2023.1</comment>
 	<projects>
 		<project>esdi_emulator</project>
 	</projects>
@@ -19,11 +19,9 @@
 		</buildCommand>
 	</buildSpec>
 	<natures>
-		<nature>com.xilinx.sdx.system.core.embedded</nature>
-		<nature>com.xilinx.sdx.system.systemprojectnature</nature>
+		<nature>com.xilinx.sdx.sdk.core.SdkProjectNature</nature>
 		<nature>org.eclipse.cdt.core.cnature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
-		<nature>org.eclipse.cdt.core.ccnature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
 	</natures>
 </projectDescription>

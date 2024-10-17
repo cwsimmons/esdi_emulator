@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="ASCII"?>
+<sdkproject:SdkProject xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:sdkproject="http://www.xilinx.com/sdkproject" name="esdi_emulator_app" location="C:/Users/chris.simmons/repos/emu2/firmware/esdi_emulator_app" platform="C:/Users/chris.simmons/repos/emu2/firmware/esdi_emulator/export/esdi_emulator/esdi_emulator.xpfm" platformUID="xilinx:zcu104::0.0(custom)" systemProject="esdi_emulator_app_system" sysConfig="esdi_emulator" runtime="C/C++" cpu="standalone_domain" cpuInstance="psu_cortexa53_0" os="standalone" mssSignature="8bada00470269a8ab9902f646da3cd30">
+  <configuration name="Debug" id="xilinx.gnu.arm.a53.exe.debug.980420241">
+    <configBuildOptions xsi:type="sdkproject:SdkOptions"/>
+    <lastBuildOptions xsi:type="sdkproject:SdkOptions"/>
+  </configuration>
+  <configuration name="Release" id="xilinx.gnu.arm.a53.exe.release.1397670204" dirty="true">
+    <configBuildOptions xsi:type="sdkproject:SdkOptions"/>
+  </configuration>
+  <template appTemplateName="empty_application"/>
+</sdkproject:SdkProject>

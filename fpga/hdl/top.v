@@ -1,10 +1,6 @@
 
 module top(
 
-    input clk125_p_i,
-    input clk125_n_i,
-
-    input reset,
 
     input esdi_transfer_req,
     input esdi_command_data,
@@ -34,10 +30,7 @@ module top(
     assign esdi_sector = esdi_drive_selected && esdi_sector2;
 
     design_1 design_1_i(
-        .CLK_IN_clk_p               (clk125_p_i),
-        .CLK_IN_clk_n               (clk125_n_i),
 
-        .reset                      (reset),
 
         .esdi_attention             (esdi_attention),
         .esdi_command_complete      (esdi_command_complete),
