@@ -1,116 +1,241 @@
-(kicad_sch (version 20230121) (generator eeschema)
-
-  (uuid 5573f2ee-e80c-4177-9891-e3b404cab47f)
-
-  (paper "A4")
-
-  (lib_symbols
-  )
-
-
-  (sheet (at 252.73 72.39) (size 26.67 16.51) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid))
-    (fill (color 0 0 0 0.0000))
-    (uuid 0b2058ba-63d5-4e56-9400-c9218af989ad)
-    (property "Sheetname" "ESDI Connector" (at 252.73 71.6784 0)
-      (effects (font (size 1.27 1.27)) (justify left bottom))
-    )
-    (property "Sheetfile" "esdi_connector.kicad_sch" (at 252.73 89.4846 0)
-      (effects (font (size 1.27 1.27)) (justify left top))
-    )
-    (instances
-      (project "fmc_esdi_drive"
-        (path "/5573f2ee-e80c-4177-9891-e3b404cab47f" (page "5"))
-      )
-    )
-  )
-
-  (sheet (at 201.93 99.06) (size 45.72 20.32) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid))
-    (fill (color 0 0 0 0.0000))
-    (uuid 4cd30fe2-8141-49be-8cfe-eaa968ebddde)
-    (property "Sheetname" "OC Inputs" (at 201.93 98.3484 0)
-      (effects (font (size 1.27 1.27)) (justify left bottom))
-    )
-    (property "Sheetfile" "oc_inputs.kicad_sch" (at 201.93 119.9646 0)
-      (effects (font (size 1.27 1.27)) (justify left top))
-    )
-    (instances
-      (project "fmc_esdi_drive"
-        (path "/5573f2ee-e80c-4177-9891-e3b404cab47f" (page "3"))
-      )
-    )
-  )
-
-  (sheet (at 170.18 40.64) (size 41.91 12.7) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid))
-    (fill (color 0 0 0 0.0000))
-    (uuid 8fbac595-a9ac-48ff-8cf3-984c98a39086)
-    (property "Sheetname" "Power Regulator" (at 170.18 39.9284 0)
-      (effects (font (size 1.27 1.27)) (justify left bottom))
-    )
-    (property "Sheetfile" "power.kicad_sch" (at 170.18 53.9246 0)
-      (effects (font (size 1.27 1.27)) (justify left top))
-    )
-    (instances
-      (project "fmc_esdi_drive"
-        (path "/5573f2ee-e80c-4177-9891-e3b404cab47f" (page "6"))
-      )
-    )
-  )
-
-  (sheet (at 201.93 127) (size 46.99 19.05) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid))
-    (fill (color 0 0 0 0.0000))
-    (uuid be8d5163-2e8a-4778-b8f4-fc80a96a2895)
-    (property "Sheetname" "Clock & Data Drivers and Receivers" (at 201.93 126.2884 0)
-      (effects (font (size 1.27 1.27)) (justify left bottom))
-    )
-    (property "Sheetfile" "clock_and_data.kicad_sch" (at 201.93 146.6346 0)
-      (effects (font (size 1.27 1.27)) (justify left top))
-    )
-    (instances
-      (project "fmc_esdi_drive"
-        (path "/5573f2ee-e80c-4177-9891-e3b404cab47f" (page "4"))
-      )
-    )
-  )
-
-  (sheet (at 161.29 85.09) (size 26.67 16.51) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid))
-    (fill (color 0 0 0 0.0000))
-    (uuid cf426c04-3745-4cda-8a66-0ee5961482e0)
-    (property "Sheetname" "FMC Connector" (at 161.29 84.3784 0)
-      (effects (font (size 1.27 1.27)) (justify left bottom))
-    )
-    (property "Sheetfile" "fmc_connector.kicad_sch" (at 161.29 102.1846 0)
-      (effects (font (size 1.27 1.27)) (justify left top))
-    )
-    (instances
-      (project "fmc_esdi_drive"
-        (path "/5573f2ee-e80c-4177-9891-e3b404cab47f" (page "7"))
-      )
-    )
-  )
-
-  (sheet (at 201.93 68.58) (size 44.45 22.86) (fields_autoplaced)
-    (stroke (width 0.1524) (type solid))
-    (fill (color 0 0 0 0.0000))
-    (uuid d2c759e9-5853-4ac2-848d-95b576a1fe1c)
-    (property "Sheetname" "OC Outputs" (at 201.93 67.8684 0)
-      (effects (font (size 1.27 1.27)) (justify left bottom))
-    )
-    (property "Sheetfile" "oc_outputs.kicad_sch" (at 201.93 92.0246 0)
-      (effects (font (size 1.27 1.27)) (justify left top))
-    )
-    (instances
-      (project "fmc_esdi_drive"
-        (path "/5573f2ee-e80c-4177-9891-e3b404cab47f" (page "2"))
-      )
-    )
-  )
-
-  (sheet_instances
-    (path "/" (page "1"))
-  )
+(kicad_sch
+	(version 20231120)
+	(generator "eeschema")
+	(generator_version "8.0")
+	(uuid "5573f2ee-e80c-4177-9891-e3b404cab47f")
+	(paper "A4")
+	(lib_symbols)
+	(sheet
+		(at 252.73 72.39)
+		(size 26.67 16.51)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "0b2058ba-63d5-4e56-9400-c9218af989ad")
+		(property "Sheetname" "ESDI Connector"
+			(at 252.73 71.6784 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "esdi_connector.kicad_sch"
+			(at 252.73 89.4846 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "fmc_esdi_drive"
+				(path "/5573f2ee-e80c-4177-9891-e3b404cab47f"
+					(page "5")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 201.93 99.06)
+		(size 45.72 20.32)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "4cd30fe2-8141-49be-8cfe-eaa968ebddde")
+		(property "Sheetname" "OC Inputs"
+			(at 201.93 98.3484 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "oc_inputs.kicad_sch"
+			(at 201.93 119.9646 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "fmc_esdi_drive"
+				(path "/5573f2ee-e80c-4177-9891-e3b404cab47f"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 170.18 40.64)
+		(size 41.91 12.7)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "8fbac595-a9ac-48ff-8cf3-984c98a39086")
+		(property "Sheetname" "Power Regulator"
+			(at 170.18 39.9284 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "power.kicad_sch"
+			(at 170.18 53.9246 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "fmc_esdi_drive"
+				(path "/5573f2ee-e80c-4177-9891-e3b404cab47f"
+					(page "6")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 201.93 127)
+		(size 46.99 19.05)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "be8d5163-2e8a-4778-b8f4-fc80a96a2895")
+		(property "Sheetname" "Clock & Data Drivers and Receivers"
+			(at 201.93 126.2884 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "clock_and_data.kicad_sch"
+			(at 201.93 146.6346 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "fmc_esdi_drive"
+				(path "/5573f2ee-e80c-4177-9891-e3b404cab47f"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 161.29 85.09)
+		(size 26.67 16.51)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "cf426c04-3745-4cda-8a66-0ee5961482e0")
+		(property "Sheetname" "FMC Connector"
+			(at 161.29 84.3784 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "fmc_connector.kicad_sch"
+			(at 161.29 102.1846 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "fmc_esdi_drive"
+				(path "/5573f2ee-e80c-4177-9891-e3b404cab47f"
+					(page "7")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 201.93 68.58)
+		(size 44.45 22.86)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "d2c759e9-5853-4ac2-848d-95b576a1fe1c")
+		(property "Sheetname" "OC Outputs"
+			(at 201.93 67.8684 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "oc_outputs.kicad_sch"
+			(at 201.93 92.0246 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "fmc_esdi_drive"
+				(path "/5573f2ee-e80c-4177-9891-e3b404cab47f"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
 )
