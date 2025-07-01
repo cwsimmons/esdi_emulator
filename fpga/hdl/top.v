@@ -54,10 +54,16 @@ module top(
         .esdi_drive_selected        (esdi_drive_selected_A),
         .esdi_head_select           (~esdi_head_select),
         .esdi_index                 (esdi_index_ungated_A),
+        .esdi_read_clock            (esdi_read_clock_A),
+        .esdi_read_data             (esdi_read_data_A),
+        .esdi_read_gate             (esdi_read_gate),
         .esdi_ready                 (esdi_ready),
         .esdi_sector                (esdi_sector_ungated_A),
         .esdi_transfer_ack          (esdi_transfer_ack),
-        .esdi_transfer_req          (!esdi_transfer_req)
+        .esdi_transfer_req          (!esdi_transfer_req),
+        .esdi_write_gate            (esdi_write_gate),
+        .esdi_write_clock           (esdi_write_clock_A),
+        .esdi_write_data            (esdi_write_data_A)
     );
 
 endmodule

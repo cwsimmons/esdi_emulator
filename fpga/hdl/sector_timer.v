@@ -157,6 +157,8 @@ module sector_timer #(
                     0 : csr_rdata <= control_register;
                     1 : csr_rdata <= sector_length;
                     2 : csr_rdata <= {24'b0, num_sectors};
+                    3 : csr_rdata <= {24'b0, sector_number};
+                    4 : csr_rdata <= cycle_count;
                 endcase
 
                 csr_rvalid <= 1;
