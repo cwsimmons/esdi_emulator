@@ -81,6 +81,9 @@ module read_datapath (
     assign csr_arready = !csr_rvalid || csr_rready;
 
     reg [31:0] control_register;
+
+    wire silence = control_register[0];
+
     reg [6:0] clocks_per_halfbit;
 
     reg [3:0] esdi_read_gate_shift;
@@ -102,7 +105,7 @@ module read_datapath (
     reg missed_deadline;
 
     assign parallel_tready = !hold_valid;
-    assign esdi_read_data = esdi_read_data_ungated && !esdi_read_gate_shift[1];
+    assign esdi_read_data = esdi_read_data_ungated && !esdi_read_gate_shift[1] && !silence;
 
 
     always @(posedge csr_aclk)

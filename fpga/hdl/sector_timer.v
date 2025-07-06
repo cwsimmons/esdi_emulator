@@ -32,7 +32,11 @@ module sector_timer #(
     output reg esdi_index,
     output reg esdi_sector,
     output reg [31:0] cycle_count,
-    output reg [7:0] sector_number
+    output reg [7:0] sector_number,
+
+    (* X_INTERFACE_INFO = "xilinx.com:signal:interrupt:1.0 intr INTERRUPT" *) 
+    (* X_INTERFACE_PARAMETER = "SENSITIVITY LEVEL_HIGH" *)
+    output interrupt
 );
 
     reg write_addr_valid;
@@ -47,8 +51,13 @@ module sector_timer #(
     reg [31:0] control_register;
 
     wire enable = control_register[0];
+    wire interrupt_enable = control_register[1];
     reg [31:0] sector_length;
+    reg [31:0] interrupt_time;
     reg [7:0] num_sectors;
+
+    reg interrupt_time_reached;
+    assign interrupt = interrupt_time_reached && interrupt_enable;
 
     always @(posedge csr_aclk)
     begin
@@ -68,6 +77,8 @@ module sector_timer #(
             write_data_valid <= 0;
             csr_bvalid <= 0;
             csr_rvalid <= 0;
+
+            interrupt_time_reached <= 0;
         end
         else
         begin
@@ -103,6 +114,12 @@ module sector_timer #(
                     end
 
                 end
+
+                if (cycle_count == interrupt_time)
+                begin
+                    interrupt_time_reached <= 1;
+                end
+
             end
             else
             begin
@@ -144,6 +161,7 @@ module sector_timer #(
                     0 : control_register <= write_data;
                     1 : sector_length <= write_data;           // Cannot be zero
                     2 : num_sectors <= write_data[7:0];
+                    5 : interrupt_time <= write_data;
                 endcase
 
                 csr_bvalid <= 1;
@@ -154,11 +172,15 @@ module sector_timer #(
             begin
 
                 case (csr_araddr[4:2])
-                    0 : csr_rdata <= control_register;
+                    0 : begin
+                        csr_rdata <= {29'b0, interrupt_time_reached, control_register[1:0]};
+                        interrupt_time_reached <= 0;
+                    end
                     1 : csr_rdata <= sector_length;
                     2 : csr_rdata <= {24'b0, num_sectors};
                     3 : csr_rdata <= {24'b0, sector_number};
                     4 : csr_rdata <= cycle_count;
+                    5 : csr_rdata <= interrupt_time;
                 endcase
 
                 csr_rvalid <= 1;

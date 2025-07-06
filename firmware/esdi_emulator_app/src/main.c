@@ -13,7 +13,7 @@
 #include "xil_mmu.h"
 #include "xil_cache.h"
 
-#define DMA_LEAD 2
+#define DMA_LEAD 1
 
 struct __attribute__((packed)) drive_configuration {
     uint16_t general_configuration[20];
@@ -67,8 +67,9 @@ struct drive_configuration drive_conf;
 
 bool print_location = false;
 
-//bool seek_pending = false;
-//int seek_release;
+bool seek_pending = false;
+bool head_change_pending = false;
+int seek_release;
 
 void command_interrupt_handler(void* arg) {
     if ((command_interface[1] & 0x2)) {
@@ -81,24 +82,37 @@ void command_interrupt_handler(void* arg) {
         if (cmd == 0x0) {
             current_cylinder = command & 0x0FFF;
             print_location = true;
-//            seek_pending = true;
-//            seek_release = tail;
+            seek_pending = true;
+            seek_release = tail;
+            read_datapath[0] = 1;
             command_interface[3] = 0;
+//            printf("s");
+        } else if (cmd == 0x1) {
+        	command_interface[3] = 0;	// Clear the command pending bit
         } else if (cmd == 0x2) {
             command_interface[2] = general_status;
             command_interface[3] = 0;	// Clear the command pending bit
+//            printf("g");
         } else if (cmd == 0x3) {
             if (modifier == 0) {
             	command_interface[2] = drive_conf.general_configuration[subscript] & 0xCFFE;
+//            	printf("1");
             } else {
                 command_interface[2] = drive_conf.specific_configuration[modifier - 1];
+//                printf("2");
             }
             command_interface[3] = 0;	// Clear the command pending bit
         } else if (cmd == 0x5) {
         	if (modifier == 0) {
         		general_status = 0;
+//        		printf("r");
+        	} else {
+//        		printf("!");
         	}
         	command_interface[3] = 0;	// Clear the command pending bit
+        } else {
+//        	printf("@");
+//        	printf("%.4x", command);
         }
 
     }
@@ -120,12 +134,16 @@ void drive_sel_interrupt_handler(void* arg) {
 }
 
 void head_sel_interrupt_handler(void* arg) {
-    if (XGpio_InterruptGetStatus(&drive_gpio_inst) & 0x1) {
-        XGpio_InterruptClear(&drive_gpio_inst, 1);
+    if (XGpio_InterruptGetStatus(&head_gpio_inst) & 0x1) {
+        XGpio_InterruptClear(&head_gpio_inst, 1);
         int new_hsel = head_select_gpio[0];
         if (new_hsel != current_head) {
         	current_head = new_hsel;
         	print_location = true;
+        	read_datapath[0] = 1;
+        	head_change_pending = true;
+        	seek_release = tail;
+//        	printf("h=%x\n", current_head);
         }
     }
 }
@@ -145,6 +163,77 @@ void dma_s2mm_interrupt_handler(void* arg) {
 
 }
 
+void update_descriptor_addresses(int start, int stop) {
+
+	if (current_cylinder >= 1224)
+		return;
+
+	int slot = cylinder_map[current_cylinder];
+
+	if (slot == -1)
+		return;
+
+	for (int i = start; i < stop; i++) {
+		int offset = (slot * cylinder_size) + (((current_head * emu_header.sectors_per_track) + i) * emu_header.sector_size_in_image);
+		descriptors[((i * 0x40) + 0x08) >> 2] = (uint32_t) &buffers[offset];
+	}
+}
+
+void sector_timer_interrupt_handler(void* arg) {
+	uint32_t status = sector_timer[0];
+
+	// Make local copy of current tail
+	int x = tail;
+
+	// Get the sector currently under the head
+	int sector_now = sector_timer[3];
+
+	// This is all modulo math, so this doesn't actually change the value of 'x'
+	if (sector_now > x)
+		x += emu_header.sectors_per_track;
+
+	// Find out exactly how close we are to the reaching the tail
+	// If the difference is two or less, then it's time to issue more descriptors
+	if ((x - sector_now) >= DMA_LEAD)
+		return;
+
+	// We are always trying to maintain the tail DMA_LEAD sectors ahead
+	// of where we currently are.
+	int new_tail = sector_now + DMA_LEAD;
+
+	int i = x + 1;				// Initialize 'i' to the sector following the current tail
+	while (i <= new_tail) {
+
+		// Check the descriptors of sectors that we think have already
+		// passed under the head (or are currently) for the complete bit
+		// set in the status, just to be extra certain that we are not
+		// having too many outstanding descriptors
+		int y = (i - DMA_LEAD) % emu_header.sectors_per_track;
+		if (!(descriptors[((y * 0x40) + 0x1C) >> 2] & (1 << 31)))
+			break;
+
+		if ((seek_pending || head_change_pending ) && (seek_release == y)) {
+//			command_interface[3] = 0;	// Clear the command pending bit
+			seek_pending = false;
+			head_change_pending = false;
+			read_datapath[0] = 0;
+		}
+
+
+		// Update the descriptors we are about to issue, by clearing
+		// the complete bit and updating their buffer address
+		y = i % emu_header.sectors_per_track;
+		descriptors[((y * 0x40) + 0x1C) >> 2] = 0;
+		//current_head = head_select_gpio[0];
+		update_descriptor_addresses(y, y+1);
+
+		// Update the tail register
+		dma[0x10 >> 2] = (uint32_t) &descriptors[(0x40 * y) >> 2];
+		tail = y;
+
+		i += 1;
+	}
+}
 
 FRESULT list_dir(const char *path)
 {
@@ -176,28 +265,13 @@ FRESULT list_dir(const char *path)
     return res;
 }
 
-void update_descriptor_addresses(int start, int stop) {
-
-	if (current_cylinder >= 1224)
-		return;
-
-	int slot = cylinder_map[current_cylinder];
-
-	if (slot == -1)
-		return;
-
-	for (int i = start; i < stop; i++) {
-		int offset = (slot * cylinder_size) + (((current_head * emu_header.sectors_per_track) + i) * emu_header.sector_size_in_image);
-		descriptors[((i * 0x40) + 0x08) >> 2] = (uint32_t) &buffers[offset];
-	}
-}
-
 int main() {
 
 	// Enable HW Cache Coherence for memory areas for use by DMA
 	Xil_Out32(0xFD6E4000, 0x1);
 
 	Xil_SetTlbAttributes((UINTPTR)descriptors, 0x605UL);
+
 	uint32_t section = ((UINTPTR) buffers) / 0x100000U;
 	while (((uint32_t) &buffers[(1024 * 1224 * 16 * 36) - 1]) >= (section * 0x100000U)) {
 		Xil_SetTlbAttributes((UINTPTR) (section * 0x100000U), 0x605UL);
@@ -208,6 +282,7 @@ int main() {
 
 	sector_timer[0] = 0;
 	write_datapath[0] = 2;
+	read_datapath[0] = 0;
 
 	if (command_interface[1] & 0x2) {
 		uint32_t trash = command_interface[2];
@@ -222,7 +297,7 @@ int main() {
     GicConfig = XScuGic_LookupConfig(XPAR_PSU_ACPU_GIC_DEVICE_ID);
 
     int status = XScuGic_CfgInitialize(&interrupt_controller, GicConfig, GicConfig->CpuBaseAddress);
-    
+
     Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_INT, (Xil_ExceptionHandler) XScuGic_InterruptHandler, &interrupt_controller);
 
     status = XScuGic_Connect(&interrupt_controller, XPAR_FABRIC_AXI_ESDI_CMD_CONTROL_0_INTERRUPT_INTR, (Xil_InterruptHandler) command_interrupt_handler, (void *) 0);
@@ -231,6 +306,7 @@ int main() {
     status = XScuGic_Connect(&interrupt_controller, XPAR_FABRIC_AXI_DMA_0_MM2S_INTROUT_INTR, (Xil_InterruptHandler) dma_mm2s_interrupt_handler, (void *) 0);
     status = XScuGic_Connect(&interrupt_controller, XPAR_FABRIC_WRITE_DATAPATH_0_INTERRUPT_INTR, (Xil_InterruptHandler) write_datapath_interrupt_handler, (void *) 0);
     status = XScuGic_Connect(&interrupt_controller, XPAR_FABRIC_AXI_DMA_0_S2MM_INTROUT_INTR, (Xil_InterruptHandler) dma_s2mm_interrupt_handler, (void *) 0);
+    status = XScuGic_Connect(&interrupt_controller, XPAR_FABRIC_SECTOR_TIMER_0_INTERRUPT_INTR,(Xil_InterruptHandler) sector_timer_interrupt_handler, (void *) 0);
 
     XScuGic_Enable(&interrupt_controller, XPAR_FABRIC_AXI_ESDI_CMD_CONTROL_0_INTERRUPT_INTR);
     XScuGic_Enable(&interrupt_controller, XPAR_FABRIC_GPIO_DRIVE_SELECT_IP2INTC_IRPT_INTR);
@@ -238,6 +314,7 @@ int main() {
     XScuGic_Enable(&interrupt_controller, XPAR_FABRIC_AXI_DMA_0_MM2S_INTROUT_INTR);
     XScuGic_Enable(&interrupt_controller, XPAR_FABRIC_WRITE_DATAPATH_0_INTERRUPT_INTR);
     XScuGic_Enable(&interrupt_controller, XPAR_FABRIC_AXI_DMA_0_S2MM_INTROUT_INTR);
+    XScuGic_Enable(&interrupt_controller, XPAR_FABRIC_SECTOR_TIMER_0_INTERRUPT_INTR);
 
     XGpio_InterruptGlobalEnable(&drive_gpio_inst);
     XGpio_InterruptEnable(&drive_gpio_inst, 1);
@@ -284,6 +361,14 @@ int main() {
 	cylinder_size = emu_header.heads * emu_header.sectors_per_track * emu_header.sector_size_in_image;
 
 	xil_printf("Emulation Header Loaded\r\n");
+	printf("    Emulation File parameters:\n");
+	printf("        Cylinders = %d\n", emu_header.cylinders);
+	printf("        Heads = %d\n", emu_header.heads);
+	printf("        Sectors = %d\n", emu_header.sectors_per_track);
+	printf("     ESDI Configuration Register parameters:\n");
+	printf("        Cylinders = %d\n", drive_conf.specific_configuration[0]);
+	printf("        Heads = %d\n", drive_conf.specific_configuration[2]);
+	printf("        Sectors = %d\n", drive_conf.specific_configuration[5]);
 
 	fr_seek = f_lseek(&image_file, emu_header.data_offset);
 
@@ -314,6 +399,7 @@ int main() {
 
     sector_timer[1] = 100000000 / 60 / emu_header.sectors_per_track;
     sector_timer[2] = emu_header.sectors_per_track;
+    sector_timer[5] = (100000000 / 60 / emu_header.sectors_per_track) - 1500;	// 15us before the end of the sector
 
     write_datapath[3] = drive_conf.specific_configuration[4] - 2;	// Unformatted bytes per sector
 
@@ -352,7 +438,7 @@ int main() {
     tail = DMA_LEAD - 1;
 
     write_datapath[0] = 0x5;
-    sector_timer[0] = 1;		// Enable
+    sector_timer[0] = 3;		// Enable
 
     while(1) {
     	if (print_location) {
@@ -360,55 +446,7 @@ int main() {
     		printf("C=%d  H=%d\r\n", current_cylinder, current_head);
     	}
 
-    	// Make local copy of current tail
-		int x = tail;
 
-		// Get the sector currently under the head
-		int sector_now = sector_timer[3];
-
-		// This is all modulo math, so this doesn't actually change the value of 'x'
-		if (sector_now > x)
-			x += emu_header.sectors_per_track;
-
-		// Find out exactly how close we are to the reaching the tail
-		// If the difference is two or less, then it's time to issue more descriptors
-		if ((x - sector_now) >= DMA_LEAD)
-			continue;
-
-		// We are always trying to maintain the tail DMA_LEAD sectors ahead
-		// of where we currently are.
-		int new_tail = sector_now + DMA_LEAD;
-
-		int i = x + 1;				// Initialize 'i' to the sector following the current tail
-		while (i <= new_tail) {
-
-			// Check the descriptors of sectors that we think have already
-			// passed under the head (or are currently) for the complete bit
-			// set in the status, just to be extra certain that we are not
-			// having too many outstanding descriptors
-			int y = (i - DMA_LEAD) % emu_header.sectors_per_track;
-			if (!(descriptors[((y * 0x40) + 0x1C) >> 2] & (1 << 31)))
-				break;
-
-//			if (seek_pending && (seek_release == y)) {
-//				command_interface[3] = 0;	// Clear the command pending bit
-//				seek_pending = false;
-//			}
-
-
-			// Update the descriptors we are about to issue, by clearing
-			// the complete bit and updating their buffer address
-			y = i % emu_header.sectors_per_track;
-			descriptors[((y * 0x40) + 0x1C) >> 2] = 0;
-			//current_head = head_select_gpio[0];
-			update_descriptor_addresses(y, y+1);
-
-			// Update the tail register
-			dma[0x10 >> 2] = (uint32_t) &descriptors[(0x40 * y) >> 2];
-			tail = y;
-
-			i += 1;
-		}
 
 
     }
