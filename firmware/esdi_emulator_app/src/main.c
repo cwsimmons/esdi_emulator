@@ -48,6 +48,11 @@ static FATFS fatfs;
 
 uint32_t descriptors[(0x40 * 128) / 4] __attribute__((aligned(0x40)));
 
+#define NUM_WRITE_DESCRIPTORS 8
+uint32_t write_descriptors[(0x40 * NUM_WRITE_DESCRIPTORS) / 4] __attribute__((aligned(0x40)));
+int current_write_descriptor;
+int last_unacked_write_descriptor;
+
 #define EMULATION_FILE_ALIGNMENT 16
 uint8_t buffers[1024 * 1224 * 16 * 36] __attribute__((aligned(EMULATION_FILE_ALIGNMENT)));
 
@@ -57,6 +62,11 @@ int current_drive_sel = 0;
 int current_cylinder = 0;
 int current_head = 0;
 int head, tail;
+
+int next_cyl = 0;
+int next_head = 0;
+int last_cyl = 0;
+int last_head = 0;
 
 uint16_t general_status;
 
@@ -153,14 +163,43 @@ void dma_mm2s_interrupt_handler(void* arg) {
 }
 
 void write_datapath_interrupt_handler(void* arg) {
-	if (write_datapath[1] & 0x2) {
-		int sector_just_finished = write_datapath[2];
+	uint32_t write_datapath_status = write_datapath[1];
+	if (write_datapath_status & 0x2) {
+		if (write_datapath_status & 0x4) {
+			int sector_just_finished = write_datapath[2];
+
+			int slot = cylinder_map[last_cyl];
+			int offset = (slot * cylinder_size) + (((last_head * emu_header.sectors_per_track) + sector_just_finished) * emu_header.sector_size_in_image);
+			write_descriptors[((current_write_descriptor * 0x40) + 0x08) >> 2] = (uint32_t) &buffers[offset];
+			write_descriptors[((current_write_descriptor * 0x40) + 0x1C) >> 2] = 0;
+			dma[0x40 >> 2] = (uint32_t) &write_descriptors[(current_write_descriptor * 0x40) >> 2];
+
+			current_write_descriptor += 1;
+			if (current_write_descriptor == NUM_WRITE_DESCRIPTORS) {
+				current_write_descriptor = 0;
+			}
+//			xil_printf("w%.8x\r\n", offset);
+		}
+
 		write_datapath[1] = 0;		// Clear interrupt condition
 	}
 }
 
 void dma_s2mm_interrupt_handler(void* arg) {
+	if (dma[0x34 >> 2] & (1 << 12)) {
+		dma[0x34 >> 2] = (1 << 12);
 
+		uint32_t desc_status = write_descriptors[((last_unacked_write_descriptor * 0x40) + 0x1C) >> 2];
+		if (desc_status & (1 << 31)) {
+//			printf("(%d=%d)\r\n", last_unacked_write_descriptor, desc_status & 0x03FFFFFF);
+			last_unacked_write_descriptor += 1;
+			if (last_unacked_write_descriptor == NUM_WRITE_DESCRIPTORS) {
+				last_unacked_write_descriptor = 0;
+			}
+		} else {
+//			printf("?");
+		}
+	}
 }
 
 void update_descriptor_addresses(int start, int stop) {
@@ -181,6 +220,13 @@ void update_descriptor_addresses(int start, int stop) {
 
 void sector_timer_interrupt_handler(void* arg) {
 	uint32_t status = sector_timer[0];
+
+	last_cyl = next_cyl;
+	last_head = next_head;
+
+	next_cyl = current_cylinder;
+	next_head = current_head;
+
 
 	// Make local copy of current tail
 	int x = tail;
@@ -234,36 +280,36 @@ void sector_timer_interrupt_handler(void* arg) {
 		i += 1;
 	}
 }
-
-FRESULT list_dir(const char *path)
-{
-    FRESULT res;
-    DIR dir;
-    FILINFO fno;
-    int nfile, ndir;
-
-
-    res = f_opendir(&dir, path);                       /* Open the directory */
-    if (res == FR_OK) {
-        nfile = ndir = 0;
-        for (;;) {
-            res = f_readdir(&dir, &fno);                   /* Read a directory item */
-            if (res != FR_OK || fno.fname[0] == 0) break;  /* Error or end of dir */
-            if (fno.fattrib & AM_DIR) {            /* Directory */
-                printf("   <DIR>   %s\n", fno.fname);
-                ndir++;
-            } else {                               /* File */
-                printf("%10u %s\n", fno.fsize, fno.fname);
-                nfile++;
-            }
-        }
-        f_closedir(&dir);
-        printf("%d dirs, %d files.\n", ndir, nfile);
-    } else {
-        printf("Failed to open \"%s\". (%u)\n", path, res);
-    }
-    return res;
-}
+//
+//FRESULT list_dir(const char *path)
+//{
+//    FRESULT res;
+//    DIR dir;
+//    FILINFO fno;
+//    int nfile, ndir;
+//
+//
+//    res = f_opendir(&dir, path);                       /* Open the directory */
+//    if (res == FR_OK) {
+//        nfile = ndir = 0;
+//        for (;;) {
+//            res = f_readdir(&dir, &fno);                   /* Read a directory item */
+//            if (res != FR_OK || fno.fname[0] == 0) break;  /* Error or end of dir */
+//            if (fno.fattrib & AM_DIR) {            /* Directory */
+//                printf("   <DIR>   %s\n", fno.fname);
+//                ndir++;
+//            } else {                               /* File */
+//                printf("%10u %s\n", fno.fsize, fno.fname);
+//                nfile++;
+//            }
+//        }
+//        f_closedir(&dir);
+//        printf("%d dirs, %d files.\n", ndir, nfile);
+//    } else {
+//        printf("Failed to open \"%s\". (%u)\n", path, res);
+//    }
+//    return res;
+//}
 
 int main() {
 
@@ -271,6 +317,8 @@ int main() {
 	Xil_Out32(0xFD6E4000, 0x1);
 
 	Xil_SetTlbAttributes((UINTPTR)descriptors, 0x605UL);
+
+	Xil_SetTlbAttributes((UINTPTR)write_descriptors, 0x605UL);
 
 	uint32_t section = ((UINTPTR) buffers) / 0x100000U;
 	while (((uint32_t) &buffers[(1024 * 1224 * 16 * 36) - 1]) >= (section * 0x100000U)) {
@@ -328,7 +376,7 @@ int main() {
 
     f_mount(&fatfs, "0:/", 1);
 
-    list_dir("/");
+//    list_dir("/");
 
     FIL image_file;
     FRESULT image_opened, fr_seek, fr_read;
@@ -360,15 +408,15 @@ int main() {
 
 	cylinder_size = emu_header.heads * emu_header.sectors_per_track * emu_header.sector_size_in_image;
 
-	xil_printf("Emulation Header Loaded\r\n");
-	printf("    Emulation File parameters:\n");
-	printf("        Cylinders = %d\n", emu_header.cylinders);
-	printf("        Heads = %d\n", emu_header.heads);
-	printf("        Sectors = %d\n", emu_header.sectors_per_track);
-	printf("     ESDI Configuration Register parameters:\n");
-	printf("        Cylinders = %d\n", drive_conf.specific_configuration[0]);
-	printf("        Heads = %d\n", drive_conf.specific_configuration[2]);
-	printf("        Sectors = %d\n", drive_conf.specific_configuration[5]);
+//	xil_printf("Emulation Header Loaded\r\n");
+//	printf("    Emulation File parameters:\n");
+//	printf("        Cylinders = %d\n", emu_header.cylinders);
+//	printf("        Heads = %d\n", emu_header.heads);
+//	printf("        Sectors = %d\n", emu_header.sectors_per_track);
+//	printf("     ESDI Configuration Register parameters:\n");
+//	printf("        Cylinders = %d\n", drive_conf.specific_configuration[0]);
+//	printf("        Heads = %d\n", drive_conf.specific_configuration[2]);
+//	printf("        Sectors = %d\n", drive_conf.specific_configuration[5]);
 
 	fr_seek = f_lseek(&image_file, emu_header.data_offset);
 
@@ -390,7 +438,7 @@ int main() {
 		}
 	}
 
-	xil_printf("Loaded Data\r\n");
+//	xil_printf("Loaded Data\r\n");
 
 	// Configure hardware with emulation data
 
@@ -401,7 +449,7 @@ int main() {
     sector_timer[2] = emu_header.sectors_per_track;
     sector_timer[5] = (100000000 / 60 / emu_header.sectors_per_track) - 1500;	// 15us before the end of the sector
 
-    write_datapath[3] = drive_conf.specific_configuration[4] - 2;	// Unformatted bytes per sector
+    write_datapath[3] = drive_conf.specific_configuration[4] - 3;	// Unformatted bytes per sector less two to match read datapath and also less one to leave space for sector number
 
     general_status = 1 << 8;	// Power on condition
 
@@ -421,17 +469,37 @@ int main() {
 
     update_descriptor_addresses(0, emu_header.sectors_per_track);
 
+    for (int i = 0; i < NUM_WRITE_DESCRIPTORS; i++) {
+    	uint32_t next_desc;
+		if (i == NUM_WRITE_DESCRIPTORS - 1)
+			next_desc = 0;
+		else
+			next_desc = i + 1;
+
+		write_descriptors[((i * 0x40) + 0x00) >> 2] = (uint32_t) &write_descriptors[(0x40 * next_desc) >> 2];
+		write_descriptors[((i * 0x40) + 0x18) >> 2] = (drive_conf.specific_configuration[4] - 2) | (3 << 26);
+		write_descriptors[((i * 0x40) + 0x1C) >> 2] = 0;
+    }
+
     // Reset DMA
     dma[0] = 0x4;
-    while(dma[0] & 0x04) {}
+    while(dma[0x00 >> 2] & 0x04) {}
+    while(dma[0x30 >> 2] & 0x04) {}
 
     // Set Head
     dma[0x08 >> 2] = (uint32_t) &descriptors[(0x40 * 0) >> 2];
     head = 0;
 
+    dma[0x38 >> 2] = (uint32_t) &write_descriptors[(0x40 * 0) >> 2];
+    current_write_descriptor = 0;
+    last_unacked_write_descriptor = 0;
+
     // Run DMA
     dma[0x00 >> 2] = 0x1;
     while(dma[0x04 >> 2] & 0x01) {}
+
+    dma[0x30 >> 2] = 0x1 | (1 << 12);
+    while(dma[0x34 >> 2] & 0x01) {}
 
     // Set Tail
     dma[0x10 >> 2] = (uint32_t) &descriptors[(0x40 * (DMA_LEAD - 1)) >> 2];
