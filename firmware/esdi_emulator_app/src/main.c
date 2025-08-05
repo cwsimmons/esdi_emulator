@@ -18,9 +18,11 @@
 						// that we let the DMA lead the head position by
 #define MAX_SUPPORTED_CYLINDERS		1224
 #define MAX_SUPPORTED_SECTORS		128
-#define DATA_BUFFER_SIZE			(1024 * MAX_SUPPORTED_CYLINDERS * 16 * 36)
+#define WORST_CASE_NUM_SLOTS		100
+#define DATA_BUFFER_SIZE			(1024 * WORST_CASE_NUM_SLOTS * 16 * MAX_SUPPORTED_SECTORS)
 #define NUM_WRITE_DESCRIPTORS 		8
 #define DIRTY_QUEUE_SIZE 			256
+#define PRELOAD_CYLINDERS			100
 
 /* ESDI Emulation File Definition */
 
@@ -78,6 +80,7 @@ uint8_t buffers[DATA_BUFFER_SIZE] __attribute__((aligned(EMULATION_FILE_ALIGNMEN
 
 // The data in 'buffers' is divided into slots, each slot holds a cylinder.
 // This array holds the mapping from cylinder to slot number
+int num_slots;
 int cylinder_map[MAX_SUPPORTED_CYLINDERS];
 
 // Current state as driven by the controller
@@ -450,6 +453,20 @@ int main() {
 	printf("        Heads = %d\n", emu_header.heads);
 	printf("        Sectors = %d\n", emu_header.sectors_per_track);
 
+	if (emu_header.cylinders > MAX_SUPPORTED_CYLINDERS) {
+		printf("The selected disk image has more cylinders than this build can support\r\n");
+		return 0;
+	}
+
+	if (emu_header.sectors_per_track > MAX_SUPPORTED_SECTORS) {
+		printf("The selected disk image has more sectors per track than this build can support\r\n");
+		return 0;
+	}
+
+	num_slots = DATA_BUFFER_SIZE / cylinder_size;
+
+	printf("Number of slots: %d\r\n", num_slots);
+
 	// Load Initial cylinders
 	fr_seek = f_lseek(&image_file, emu_header.data_offset);
 
@@ -458,13 +475,13 @@ int main() {
 	}
 
     for (int i = 0; i < MAX_SUPPORTED_CYLINDERS; i++) {
-    	if (i < 100)
+    	if (i < PRELOAD_CYLINDERS)
     		cylinder_map[i] = i;
     	else
     		cylinder_map[i] = -1;
     }
 
-	for (int i = 0; i < 100; i++) {
+	for (int i = 0; i < PRELOAD_CYLINDERS; i++) {
 		fr_read = f_read(&image_file, (void*) &buffers[cylinder_size * i], cylinder_size, &bytes_read);
 		if (fr_read || (bytes_read < cylinder_size)) {
 			xil_printf("Failed to load cylinder %d\r\n", i);
