@@ -24,6 +24,7 @@ MEMORY
    psu_ddr_0_MEM_0 : ORIGIN = 0x0, LENGTH = 0x7FF00000
    psu_ocm_ram_0_MEM_0 : ORIGIN = 0xFFFC0000, LENGTH = 0x40000
    psu_qspi_linear_0_MEM_0 : ORIGIN = 0xC0000000, LENGTH = 0x20000000
+   axi_bram : ORIGIN = 0xA0008000, LENGTH = 0x4000
 }
 
 /* Specify the default entry point to the program */
@@ -320,5 +321,10 @@ _SDA2_BASE_ = __sdata2_start + ((__sbss2_end - __sdata2_start) / 2 );
 } > psu_ddr_0_MEM_0
 
 _end = .;
+
+.bram_memory : {
+	*(.bram_memory)
+} > axi_bram
+
 }
 

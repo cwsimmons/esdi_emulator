@@ -87,8 +87,8 @@ volatile uint32_t* read_datapath =     (volatile uint32_t*) XPAR_READ_DATAPATH_0
 volatile uint32_t* write_datapath =    (volatile uint32_t*) XPAR_WRITE_DATAPATH_0_BASEADDR;
 
 // DMA Stuff
-uint32_t descriptors[(0x40 * MAX_SUPPORTED_SECTORS) / 4] __attribute__((aligned(0x40))); // Aligned because Xilinx DMA requires it.
-uint32_t write_descriptors[(0x40 * NUM_WRITE_DESCRIPTORS) / 4] __attribute__((aligned(0x40)));
+uint32_t descriptors[(0x40 * MAX_SUPPORTED_SECTORS) / 4] __attribute__((section(".bram_memory"),aligned(0x40))); // Aligned because Xilinx DMA requires it.
+uint32_t write_descriptors[(0x40 * NUM_WRITE_DESCRIPTORS) / 4] __attribute__((section(".bram_memory"),aligned(0x40)));
 
 struct chs write_descriptor_chs[NUM_WRITE_DESCRIPTORS];  // Keep track of the CHS address of each write descriptor
 int current_write_descriptor;			// Index of the write descriptor that will be used next
@@ -367,10 +367,6 @@ int main() {
 
 	// Enable HW Cache Coherence for memory areas for use by DMA
 	Xil_Out32(0xFD6E4000, 0x1);
-
-	Xil_SetTlbAttributes((UINTPTR)descriptors, 0x605UL);
-
-	Xil_SetTlbAttributes((UINTPTR)write_descriptors, 0x605UL);
 
 	uint32_t section = ((UINTPTR) buffers) / 0x100000U;
 	while (((uint32_t) (intptr_t) &buffers[DATA_BUFFER_SIZE - 1]) >= (section * 0x100000U)) {

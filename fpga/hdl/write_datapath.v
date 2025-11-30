@@ -118,6 +118,7 @@ module write_datapath (
     reg overflow;
     reg new_sector;
     reg new_sector_dirty;
+    reg sector_missed;
     reg [7:0] new_sector_number;
 
     assign interrupt = new_sector & interrupt_enable;
@@ -171,6 +172,7 @@ module write_datapath (
             overflow <= 0;
             new_sector <= 0;
             new_sector_dirty <= 0;
+            sector_missed <= 0;
             fifo_in_valid <= 0;
             send_out <= 0;
             sector_complete <= 0;
@@ -264,6 +266,8 @@ module write_datapath (
                 begin
                     sector_complete <= 0;
                     new_sector <= 1;
+                    if (new_sector)
+                        sector_missed <= 1;
                     new_sector_dirty <= sector_dirty;
                     new_sector_number <= current_sector;
                     if (sector_dirty)
@@ -289,6 +293,7 @@ module write_datapath (
                 sector_complete <= 0;
                 new_sector <= 0;
                 new_sector_dirty <= 0;
+                sector_missed <= 0;
                 send_out <= 0;
             end
 
@@ -320,6 +325,7 @@ module write_datapath (
                 case (write_addr[4:2])
                     0 : control_register <= write_data;
                     1 : begin
+                        sector_missed <= write_data[3];
                         new_sector <= write_data[1];
                         overflow <= write_data[0];
                     end
@@ -335,7 +341,7 @@ module write_datapath (
 
                 case (csr_araddr[4:2])
                     0 : csr_rdata <= control_register;
-                    1 : csr_rdata <= {30'b0, new_sector_dirty, new_sector, overflow};
+                    1 : csr_rdata <= {29'b0, sector_missed, new_sector_dirty, new_sector, overflow};
                     2 : csr_rdata <= {24'b0, new_sector_number};
                     3 : csr_rdata <= {22'b0, unformatted_sector_length};
                 endcase
