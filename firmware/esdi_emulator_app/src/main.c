@@ -42,6 +42,7 @@
 #define NUM_WRITE_DESCRIPTORS 		8
 #define DIRTY_QUEUE_SIZE 			256
 #define PRELOAD_CYLINDERS			100
+#define LOG_ENTRIES					1024
 
 /* ESDI Emulation File Definition */
 
@@ -67,6 +68,11 @@ struct chs {
 	int c;
 	int h;
 	int s;
+};
+
+struct log_entry {
+	int type;
+	int description[3];
 };
 
 /* Xilinx Driver Instances */
@@ -141,6 +147,18 @@ bool print_location = false;
 bool seek_pending = false;
 bool head_change_pending = false;
 int seek_release;
+
+/* Logging */
+
+struct log_entry log[LOG_ENTRIES];
+int log_oldest = 0;
+int log_next = 0;
+
+#define LOG_WRITE_MISSED 1
+#define LOG_READ_MISSED 2
+#define LOG_READ_UNDERFLOW 5
+#define LOG_DIRTY_FULL 3
+#define LOG_WRITE_OVERFLOW 4
 
 // Handle for commands and configuration/status queries from the ESDI controller
 void command_interrupt_handler(void* arg) {
@@ -221,8 +239,27 @@ void dma_mm2s_interrupt_handler(void* arg) {
 void write_datapath_interrupt_handler(void* arg) {
 	uint32_t write_datapath_status = write_datapath[1];
 	if (write_datapath_status & 0x2) {		// Check that the interrupt actually occurred
+
+		int sector_just_finished = write_datapath[2];	// Get the physical sector number of the new sector
+
+		if (write_datapath_status & 0x1) {	// Check if write fifo overflowed
+
+			struct log_entry e;
+			e.type = LOG_WRITE_OVERFLOW;
+			e.description[0] = sector_just_finished;
+			log[log_next] = e;
+			log_next = (log_next + 1) % LOG_ENTRIES;
+		}
+
+		if (write_datapath_status & 0x8) {	// Check if a sector was missed
+			struct log_entry e;
+			e.type = LOG_WRITE_MISSED;
+			e.description[0] = sector_just_finished;
+			log[log_next] = e;
+			log_next = (log_next + 1) % LOG_ENTRIES;
+		}
+
 		if (write_datapath_status & 0x4) {	// Check if a sector has been written
-			int sector_just_finished = write_datapath[2];	// Get the physical sector number of the new sector
 
 			// Store the CHS for later when we go to write it into the file
 			write_descriptor_chs[current_write_descriptor].c  = last_cyl;
@@ -246,7 +283,7 @@ void write_datapath_interrupt_handler(void* arg) {
 				current_write_descriptor = 0;
 			}
 		}
-		write_datapath[1] = 0;		// Clear interrupt condition
+		write_datapath[1] = 0;		// Clear interrupt condition and possible errors
 	}
 }
 
@@ -259,13 +296,21 @@ void dma_s2mm_interrupt_handler(void* arg) {
 		uint32_t desc_status = write_descriptors[((last_unacked_write_descriptor * 0x40) + 0x1C) >> 2];
 		if (desc_status & (1 << 31)) {	// If the descriptor has completed
 
+			struct chs address = write_descriptor_chs[last_unacked_write_descriptor];
+
 			// Check for space in the dirty queue
 			if (((dirty_queue_tail + 1) % DIRTY_QUEUE_SIZE) != dirty_queue_head) {
 				// Enqueue the dirty sector's address
-				dirty_queue[dirty_queue_tail] = write_descriptor_chs[last_unacked_write_descriptor];
+				dirty_queue[dirty_queue_tail] = address;
 				dirty_queue_tail = (dirty_queue_tail + 1) % DIRTY_QUEUE_SIZE;
 			} else {
-				printf("X");
+				struct log_entry e;
+				e.type = LOG_DIRTY_FULL;
+				e.description[0] = address.c;
+				e.description[1] = address.h;
+				e.description[2] = address.s;
+				log[log_next] = e;
+				log_next = (log_next + 1) % LOG_ENTRIES;
 			}
 
 			// Increment
@@ -301,6 +346,32 @@ void sector_timer_interrupt_handler(void* arg) {
 	uint32_t status = sector_timer[0];		// Reading this register has the side effect of clearing the interrupt condition
 	(void) status;
 
+	// Get the sector currently under the head
+	int sector_now = sector_timer[3];
+
+	// Log any issues
+	status = read_datapath[1];
+	if (status & 0x1) {
+		struct log_entry e;
+		e.type = LOG_READ_UNDERFLOW;
+		e.description[0] = sector_now;
+		e.description[1] = sector_timer[4];
+		log[log_next] = e;
+		log_next = (log_next + 1) % LOG_ENTRIES;
+	}
+
+	if (status & 0x2) {
+		struct log_entry e;
+		e.type = LOG_READ_MISSED;
+		e.description[0] = sector_now;
+		e.description[1] = sector_timer[4];
+		log[log_next] = e;
+		log_next = (log_next + 1) % LOG_ENTRIES;
+	}
+
+	// Clear any errors
+	read_datapath[1] = 0;
+
 	// Advance pipeline
 	last_cyl = next_cyl;
 	last_head = next_head;
@@ -310,9 +381,6 @@ void sector_timer_interrupt_handler(void* arg) {
 
 	// Make local copy of current tail
 	int x = tail;
-
-	// Get the sector currently under the head
-	int sector_now = sector_timer[3];
 
 	// This is all modulo math, so this doesn't actually change the value of 'x'
 	if (sector_now > x)
@@ -426,7 +494,7 @@ int main() {
     f_mount(&fatfs, "0:/", 1);
 
     FIL image_file;
-    FRESULT image_opened, fr_seek, fr_read;
+    FRESULT image_opened, fr_seek, fr_read, fr_write;
     UINT bytes_read;
 
     image_opened = f_open(&image_file, "MICROP~1.EMU", FA_READ | FA_WRITE);
@@ -600,7 +668,28 @@ int main() {
 			}
 
 			unsigned int bytes_written;
-    		f_write(&image_file, &buffers[(cylinder_size * slot) + (((dirty_sector.h * emu_header.sectors_per_track) + dirty_sector.s) * emu_header.sector_size_in_image)], emu_header.sector_size_in_image, &bytes_written);
+			fr_write = f_write(&image_file, &buffers[(cylinder_size * slot) + (((dirty_sector.h * emu_header.sectors_per_track) + dirty_sector.s) * emu_header.sector_size_in_image)], emu_header.sector_size_in_image, &bytes_written);
+
+			if (fr_write) {
+				printf("Write Failed (code=%d)\r\n", fr_write);
+			}
+    	}
+
+    	if (log_oldest != log_next) {
+    		struct log_entry e = log[log_oldest];
+    		log_oldest = (log_oldest + 1) % LOG_ENTRIES;
+
+    		if (e.type == LOG_WRITE_MISSED) {
+    			printf("Write missed (%d)\r\n", e.description[0]);
+    		} else if (e.type == LOG_WRITE_OVERFLOW) {
+    			printf("Write FIFO overflow (%d)\r\n", e.description[0]);
+    		} else if (e.type == LOG_READ_MISSED) {
+    			printf("Read deadline missed (%d, %d)\r\n", e.description[0], e.description[1]);
+    		} else if (e.type == LOG_READ_UNDERFLOW) {
+    			printf("Read underflow (%d)\r\n", e.description[0]);
+    		} else if (e.type == LOG_DIRTY_FULL) {
+    			printf("Dirty queue full (%d,%d,%d)\r\n", e.description[0], e.description[1], e.description[2]);
+    		}
     	}
 
 
