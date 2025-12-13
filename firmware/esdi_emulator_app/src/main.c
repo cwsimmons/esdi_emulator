@@ -102,6 +102,7 @@ int last_unacked_write_descriptor;		// Index of the write descriptor we expect t
 
 // Storage for emulated sector data
 uint8_t buffers[DATA_BUFFER_SIZE] __attribute__((aligned(EMULATION_FILE_ALIGNMENT))); // AXI DMA requires alignment of at least 4
+bool dirty_flags[WORST_CASE_NUM_SLOTS * 16 * MAX_SUPPORTED_SECTORS];
 
 // The data in 'buffers' is divided into slots, each slot holds a cylinder.
 // This array holds the mapping from cylinder to slot number
@@ -297,20 +298,27 @@ void dma_s2mm_interrupt_handler(void* arg) {
 		if (desc_status & (1 << 31)) {	// If the descriptor has completed
 
 			struct chs address = write_descriptor_chs[last_unacked_write_descriptor];
+			int slot = cylinder_map[address.c];
+			int dirty_flag_offset = (((slot * emu_header.heads) + address.h) * emu_header.sectors_per_track) + address.s;
+			if (!dirty_flags[dirty_flag_offset]) {
 
-			// Check for space in the dirty queue
-			if (((dirty_queue_tail + 1) % DIRTY_QUEUE_SIZE) != dirty_queue_head) {
-				// Enqueue the dirty sector's address
-				dirty_queue[dirty_queue_tail] = address;
-				dirty_queue_tail = (dirty_queue_tail + 1) % DIRTY_QUEUE_SIZE;
-			} else {
-				struct log_entry e;
-				e.type = LOG_DIRTY_FULL;
-				e.description[0] = address.c;
-				e.description[1] = address.h;
-				e.description[2] = address.s;
-				log[log_next] = e;
-				log_next = (log_next + 1) % LOG_ENTRIES;
+				dirty_flags[dirty_flag_offset] = true;
+
+				// Check for space in the dirty queue
+				if (((dirty_queue_tail + 1) % DIRTY_QUEUE_SIZE) != dirty_queue_head) {
+					// Enqueue the dirty sector's address
+					dirty_queue[dirty_queue_tail] = address;
+					dirty_queue_tail = (dirty_queue_tail + 1) % DIRTY_QUEUE_SIZE;
+				} else {
+					struct log_entry e;
+					e.type = LOG_DIRTY_FULL;
+					e.description[0] = address.c;
+					e.description[1] = address.h;
+					e.description[2] = address.s;
+					log[log_next] = e;
+					log_next = (log_next + 1) % LOG_ENTRIES;
+				}
+
 			}
 
 			// Increment
@@ -571,6 +579,8 @@ int main() {
 		}
 	}
 
+	memset(dirty_flags, 0, WORST_CASE_NUM_SLOTS * 16 * MAX_SUPPORTED_SECTORS);
+
 	xil_printf("Loaded Data\r\n");
 
 	// Configure hardware with emulation data
@@ -656,22 +666,36 @@ int main() {
     	if (dirty_queue_head != dirty_queue_tail) {
     		struct chs dirty_sector = dirty_queue[dirty_queue_head];
     		dirty_queue_head = (dirty_queue_head + 1) % DIRTY_QUEUE_SIZE;
-    		printf("Dirty (%d,%d,%d)\r\n", dirty_sector.c, dirty_sector.h, dirty_sector.s);
+    		
     		int slot = cylinder_map[dirty_sector.c];
-    		if (slot == -1) {
-    			continue;
-    		}
-    		fr_seek = f_lseek(&image_file, emu_header.data_offset + (cylinder_size * dirty_sector.c) + (((dirty_sector.h * emu_header.sectors_per_track) + dirty_sector.s) * emu_header.sector_size_in_image));
+    		// if (slot == -1) {
+    		// 	continue;
+    		// }
 
-			if (fr_seek) {
-				continue;
+			int dirty_flag_offset = (((slot * emu_header.heads) + dirty_sector.h) * emu_header.sectors_per_track) + dirty_sector.s;
+			if (dirty_flags[dirty_flag_offset]) {
+
+				dirty_flags[dirty_flag_offset] = false;
+
+				printf("Dirty (%d,%d,%d)\r\n", dirty_sector.c, dirty_sector.h, dirty_sector.s);
+				fr_seek = f_lseek(&image_file, emu_header.data_offset + (cylinder_size * dirty_sector.c) + (((dirty_sector.h * emu_header.sectors_per_track) + dirty_sector.s) * emu_header.sector_size_in_image));
+
+				if (fr_seek) {
+					continue;
+				}
+
+				unsigned int bytes_written;
+				fr_write = f_write(&image_file, &buffers[(cylinder_size * slot) + (((dirty_sector.h * emu_header.sectors_per_track) + dirty_sector.s) * emu_header.sector_size_in_image)], emu_header.sector_size_in_image, &bytes_written);
+
+				if (fr_write) {
+					printf("Write Failed (code=%d)\r\n", fr_write);
+				}
+
 			}
 
-			unsigned int bytes_written;
-			fr_write = f_write(&image_file, &buffers[(cylinder_size * slot) + (((dirty_sector.h * emu_header.sectors_per_track) + dirty_sector.s) * emu_header.sector_size_in_image)], emu_header.sector_size_in_image, &bytes_written);
-
-			if (fr_write) {
-				printf("Write Failed (code=%d)\r\n", fr_write);
+			if (dirty_queue_head == dirty_queue_tail) {
+				f_sync(&image_file);
+				printf("Flushed\r\n");
 			}
     	}
 
