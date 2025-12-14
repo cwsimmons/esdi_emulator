@@ -40,7 +40,7 @@
 #define WORST_CASE_NUM_SLOTS		100
 #define DATA_BUFFER_SIZE			(1024 * WORST_CASE_NUM_SLOTS * 16 * MAX_SUPPORTED_SECTORS)
 #define NUM_WRITE_DESCRIPTORS 		8
-#define DIRTY_QUEUE_SIZE 			256
+#define DIRTY_QUEUE_SIZE 			1024
 #define PRELOAD_CYLINDERS			100
 #define LOG_ENTRIES					1024
 
@@ -107,7 +107,9 @@ bool dirty_flags[WORST_CASE_NUM_SLOTS * 16 * MAX_SUPPORTED_SECTORS];
 // The data in 'buffers' is divided into slots, each slot holds a cylinder.
 // This array holds the mapping from cylinder to slot number
 int num_slots;
-int cylinder_map[MAX_SUPPORTED_CYLINDERS];
+int cylinder_map[MAX_SUPPORTED_CYLINDERS];			// For converting cylinder# to slot#
+int slot_to_cylinder_map[WORST_CASE_NUM_SLOTS];
+uint64_t lru_table[WORST_CASE_NUM_SLOTS];
 
 // Current state as driven by the controller
 int current_drive_sel = 0;
@@ -148,6 +150,8 @@ bool print_location = false;
 bool seek_pending = false;
 bool head_change_pending = false;
 int seek_release;
+bool cyl_load_needed = false;
+bool seeks_throttled = false;
 
 /* Logging */
 
@@ -160,6 +164,29 @@ int log_next = 0;
 #define LOG_READ_UNDERFLOW 5
 #define LOG_DIRTY_FULL 3
 #define LOG_WRITE_OVERFLOW 4
+
+static inline uint64_t read_cntvct(void)
+{
+    uint64_t val;
+    asm volatile("mrs %0, cntvct_el0" : "=r"(val));
+    return val;
+}
+
+int dirty_queue_num_used() {
+	if (dirty_queue_head == dirty_queue_tail) {
+		return 0;
+	} else {
+		int num_used = dirty_queue_tail - dirty_queue_head;
+		if (num_used > 0)
+			return num_used;
+		else 
+			return num_used + DIRTY_QUEUE_SIZE;
+	}
+}
+
+int dirty_queue_num_free() {
+	return DIRTY_QUEUE_SIZE - 1 - dirty_queue_num_used();
+}
 
 // Handle for commands and configuration/status queries from the ESDI controller
 void command_interrupt_handler(void* arg) {
@@ -177,7 +204,24 @@ void command_interrupt_handler(void* arg) {
             seek_pending = true;
             seek_release = tail;
             read_datapath[0] = 1;
-            command_interface[3] = 0;
+
+			// Slowing down seeks is our only way to stop the controller from writing faster than we can handle
+			// Don't complete a seek unless there is enough space in the dirty queue for every sector of a cylinder
+			if (dirty_queue_num_free() < (emu_header.heads * emu_header.sectors_per_track)) {
+				seeks_throttled = true;
+			}
+			
+			// Check if cylinder is already loaded
+			if (cylinder_map[current_cylinder] == -1) {
+				cyl_load_needed = true;
+			}
+
+			// If cylinder is already loaded and no throttling is needed, assert command complete and update last used timestamp,
+			if (!seeks_throttled && !cyl_load_needed) {
+				command_interface[3] = 0;
+				lru_table[cylinder_map[current_cylinder]] = read_cntvct();
+			}
+
         } else if (cmd == 0x1) {	// recalibrate
         	command_interface[3] = 0;	// Clear the command pending bit
         } else if (cmd == 0x2) {	// Request Status
@@ -554,7 +598,8 @@ int main() {
 		return 0;
 	}
 
-	num_slots = DATA_BUFFER_SIZE / cylinder_size;
+	// num_slots = DATA_BUFFER_SIZE / cylinder_size;
+	num_slots = WORST_CASE_NUM_SLOTS;
 
 	printf("Number of slots: %d\r\n", num_slots);
 
@@ -577,9 +622,11 @@ int main() {
 		if (fr_read || (bytes_read < cylinder_size)) {
 			xil_printf("Failed to load cylinder %d\r\n", i);
 		}
+		slot_to_cylinder_map[i] = i;
 	}
 
 	memset(dirty_flags, 0, WORST_CASE_NUM_SLOTS * 16 * MAX_SUPPORTED_SECTORS);
+	memset(lru_table, 0, WORST_CASE_NUM_SLOTS * sizeof(uint64_t));
 
 	xil_printf("Loaded Data\r\n");
 
@@ -660,7 +707,67 @@ int main() {
     		printf("C=%d  H=%d\r\n", current_cylinder, current_head);
     	}
 
-    	// TODO: Check if we need to load a cylinder
+		// Check if we can complete a throttled seek
+		if (seeks_throttled) {
+			if (dirty_queue_num_free() >= (emu_header.heads * emu_header.sectors_per_track)) {
+				seeks_throttled = false;
+				// If there are no other barriers to completing the seek
+				if (!cyl_load_needed) {
+					command_interface[3] = 0;
+					lru_table[cylinder_map[current_cylinder]] = read_cntvct();
+				}
+			}
+		}
+
+    	// Load a slot if needed
+		if (cyl_load_needed) {
+
+			// Determine which slot is least recently used
+			int lru_slot = 0;
+			uint64_t lru_timestamp = lru_table[0];
+
+			for (int i = 1; i < num_slots; i++) {
+				if (lru_table[i] < lru_timestamp) {
+					lru_slot = i;
+					lru_timestamp = lru_table[i];
+				}
+			}
+
+			// Determine if this slot has dirty sectors
+			bool slot_dirty = false;
+			int dirty_flag_offset = lru_slot * emu_header.heads * emu_header.sectors_per_track;
+			for (int i = 0; i < (emu_header.heads * emu_header.sectors_per_track); i++) {
+				if (dirty_flags[dirty_flag_offset + i])
+					slot_dirty = true;
+			}
+
+			// If clean, evict and load with current_cylinder
+			if (!slot_dirty) {
+				fr_seek = f_lseek(&image_file, emu_header.data_offset + (cylinder_size * current_cylinder));
+
+				if (!fr_seek)
+					fr_read = f_read(&image_file, (void*) &buffers[cylinder_size * lru_slot], cylinder_size, &bytes_read);
+
+				if (fr_seek || fr_read || (bytes_read < cylinder_size)) {
+					xil_printf("Failed to load cylinder %d\r\n", current_cylinder);
+				}
+
+				// Update maps
+				int cylinder_unloaded = slot_to_cylinder_map[lru_slot];		// backup cylinder# that is being unloaded
+				cylinder_map[cylinder_unloaded] = -1;						// mark that cylinder as unloaded
+				cylinder_map[current_cylinder] = lru_slot;
+				slot_to_cylinder_map[lru_slot] = current_cylinder;			
+
+				printf("Slot %d load: %d -> %d\r\n", lru_slot, cylinder_unloaded, current_cylinder);
+
+				cyl_load_needed = false;
+				// If there are no other barriers to completing the seek
+				if (!seeks_throttled) {
+					command_interface[3] = 0;
+					lru_table[cylinder_map[current_cylinder]] = read_cntvct();
+				}
+			}
+		}
 
     	// Write a dirty sector to SD if there is one
     	if (dirty_queue_head != dirty_queue_tail) {

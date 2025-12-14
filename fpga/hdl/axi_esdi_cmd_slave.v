@@ -259,11 +259,6 @@ module axi_esdi_cmd_controller #(
                         command_complete <= 1;
                     end
                 end
-                else if (cycle_count == BIT_TIMEOUT)
-                begin
-                    state <= 4;
-                    cycle_count <= 0;
-                end
             end
             else if (state == 4)
             begin
