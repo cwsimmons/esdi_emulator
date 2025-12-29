@@ -238,6 +238,7 @@ void command_interrupt_handler(void* arg) {
         } else if (cmd == 0x5) {	// "Control"
         	if (modifier == 0) {	// 		Reset interface attention and standard status
         		general_status = 0;
+				command_interface[4] = 0;	// Clear the attention signal
         	}
         	command_interface[3] = 0;	// Clear the command pending bit
         }
@@ -266,11 +267,17 @@ void head_sel_interrupt_handler(void* arg) {
         XGpio_InterruptClear(&head_gpio_inst, 1);
         int new_hsel = head_select_gpio[0];
         if (new_hsel != current_head) {
-        	current_head = new_hsel;
-        	print_location = true;
-        	read_datapath[0] = 1;
-        	head_change_pending = true;
-        	seek_release = tail;
+			if (new_hsel < emu_header.heads) {
+				current_head = new_hsel;
+				print_location = true;
+				read_datapath[0] = 1;
+				head_change_pending = true;
+				seek_release = tail;
+			} else {
+				general_status |= 0x2;		// IBM drives signal a wtite fault here
+				command_interface[4] = 1;
+			}
+        	
         }
     }
 }
@@ -549,7 +556,7 @@ int main() {
     FRESULT image_opened, fr_seek, fr_read, fr_write;
     UINT bytes_read;
 
-    image_opened = f_open(&image_file, "MICROP~1.EMU", FA_READ | FA_WRITE);
+    image_opened = f_open(&image_file, "PS2_2.EMU", FA_READ | FA_WRITE);
 
     if (image_opened != FR_OK) {
     	return 0;
@@ -634,6 +641,8 @@ int main() {
 
     command_interface[0] = 0x0001;	// Soft reset
     command_interface[0] = 0x0000;
+
+	read_datapath[2] = HW_FREQ / 10e6 / 2;
 
     sector_timer[1] = HW_FREQ / (drive_rpm / 60) / emu_header.sectors_per_track;
     sector_timer[2] = emu_header.sectors_per_track;
