@@ -19,7 +19,7 @@
 */
 
 module sector_timer #(
-    parameter PULSE_WIDTH = 500 // should be about 5 us
+    parameter PULSE_WIDTH = 1500 // should be about 5 us
 ) (
     input csr_aclk,
     input csr_aresetn,

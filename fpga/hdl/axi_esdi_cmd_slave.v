@@ -20,10 +20,10 @@
 
 module axi_esdi_cmd_controller #(
     // Resonable settings assuming 100 MHz clock
-    parameter DATA_SETUP = 6, // Command Data setup time. Minimum is 50ns
-    parameter ACK_TO_NREQ = 6, // Transfer Ack to Transfer Req deassert. Minimum is 50ns
-    parameter ATTN_TO_CMPL = 10,
-    parameter BIT_TIMEOUT = 10_000_00 // 10ms
+    parameter DATA_SETUP = 18, // Command Data setup time. Minimum is 50ns
+    parameter ACK_TO_NREQ = 18, // Transfer Ack to Transfer Req deassert. Minimum is 50ns
+    parameter ATTN_TO_CMPL = 30,
+    parameter BIT_TIMEOUT = 30_000_00 // 10ms
 ) (
     input csr_aclk,
     input csr_aresetn,

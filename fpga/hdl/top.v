@@ -55,7 +55,9 @@ module top(
     output esdi_read_clock_B,
     output esdi_read_data_B,
     input esdi_write_clock_B,
-    input esdi_write_data_B
+    input esdi_write_data_B,
+
+    output [3:0] leds
 
 );
 
@@ -82,7 +84,9 @@ module top(
         .esdi_transfer_req          (!esdi_transfer_req),
         .esdi_write_gate            (esdi_write_gate),
         .esdi_write_clock           (esdi_write_clock_A),
-        .esdi_write_data            (esdi_write_data_A)
+        .esdi_write_data            (esdi_write_data_A),
+
+        .leds_tri_o                 (leds)
     );
 
 endmodule

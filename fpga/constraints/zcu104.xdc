@@ -21,14 +21,14 @@ set_property IOSTANDARD LVDS [get_ports "clk125_n_i"] ;
 # 125MHz is 1/8ns
 # create_clock -name clk125 -period 8.000 [get_ports {clk125_p_i}]
 
-# set_property PACKAGE_PIN D5       [get_ports "leds[0]"];
-# set_property IOSTANDARD LVCMOS33  [get_ports "leds[0]"];
-# set_property PACKAGE_PIN D6       [get_ports "leds[1]"];
-# set_property IOSTANDARD LVCMOS33  [get_ports "leds[1]"];
-# set_property PACKAGE_PIN A5       [get_ports "leds[2]"];
-# set_property IOSTANDARD LVCMOS33  [get_ports "leds[2]"];
-# set_property PACKAGE_PIN B5       [get_ports "leds[3]"];
-# set_property IOSTANDARD LVCMOS33  [get_ports "leds[3]"];
+set_property PACKAGE_PIN D5       [get_ports "leds[0]"];
+set_property IOSTANDARD LVCMOS33  [get_ports "leds[0]"];
+set_property PACKAGE_PIN D6       [get_ports "leds[1]"];
+set_property IOSTANDARD LVCMOS33  [get_ports "leds[1]"];
+set_property PACKAGE_PIN A5       [get_ports "leds[2]"];
+set_property IOSTANDARD LVCMOS33  [get_ports "leds[2]"];
+set_property PACKAGE_PIN B5       [get_ports "leds[3]"];
+set_property IOSTANDARD LVCMOS33  [get_ports "leds[3]"];
 
 
 ## Inputs

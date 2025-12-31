@@ -32,17 +32,17 @@
 #include "xil_mmu.h"
 #include "xil_cache.h"
 
-#define HW_FREQ			100000000
+#define HW_FREQ			300000000
 #define DMA_LEAD 1		// The number of read DMA (mm2s) descriptors
 						// that we let the DMA lead the head position by
 #define MAX_SUPPORTED_CYLINDERS		1224
-#define MAX_SUPPORTED_SECTORS		128
+#define MAX_SUPPORTED_SECTORS		96
 #define WORST_CASE_NUM_SLOTS		100
 #define DATA_BUFFER_SIZE			(1024 * WORST_CASE_NUM_SLOTS * 16 * MAX_SUPPORTED_SECTORS)
 #define NUM_WRITE_DESCRIPTORS 		8
 #define DIRTY_QUEUE_SIZE 			1024
 #define PRELOAD_CYLINDERS			100
-#define LOG_ENTRIES					1024
+#define LOG_ENTRIES					100
 
 /* ESDI Emulation File Definition */
 
@@ -66,8 +66,8 @@ struct __attribute__((packed)) emulation_header {
 // Sector address struct
 struct chs {
 	int c;
-	int h;
-	int s;
+	char h;
+	char s;
 };
 
 struct log_entry {
@@ -91,6 +91,7 @@ volatile uint32_t* head_select_gpio =  (volatile uint32_t*) XPAR_GPIO_HEAD_SELEC
 volatile uint32_t* dma =               (volatile uint32_t*) XPAR_AXI_DMA_0_BASEADDR;
 volatile uint32_t* read_datapath =     (volatile uint32_t*) XPAR_READ_DATAPATH_0_BASEADDR;
 volatile uint32_t* write_datapath =    (volatile uint32_t*) XPAR_WRITE_DATAPATH_0_BASEADDR;
+volatile uint32_t* leds_gpio =         (volatile uint32_t*) XPAR_AXI_GPIO_LEDS_BASEADDR;
 
 // DMA Stuff
 uint32_t descriptors[(0x40 * MAX_SUPPORTED_SECTORS) / 4] __attribute__((section(".bram_memory"),aligned(0x40))); // Aligned because Xilinx DMA requires it.
@@ -101,13 +102,13 @@ int current_write_descriptor;			// Index of the write descriptor that will be us
 int last_unacked_write_descriptor;		// Index of the write descriptor we expect to complete next
 
 // Storage for emulated sector data
-uint8_t buffers[DATA_BUFFER_SIZE] __attribute__((aligned(EMULATION_FILE_ALIGNMENT))); // AXI DMA requires alignment of at least 4
+uint8_t buffers[DATA_BUFFER_SIZE] __attribute__((section(".ddr_memory"),aligned(EMULATION_FILE_ALIGNMENT))); // AXI DMA requires alignment of at least 4
 bool dirty_flags[WORST_CASE_NUM_SLOTS * 16 * MAX_SUPPORTED_SECTORS];
 
 // The data in 'buffers' is divided into slots, each slot holds a cylinder.
 // This array holds the mapping from cylinder to slot number
 int num_slots;
-int cylinder_map[MAX_SUPPORTED_CYLINDERS];			// For converting cylinder# to slot#
+int8_t cylinder_map[MAX_SUPPORTED_CYLINDERS];			// For converting cylinder# to slot#
 int slot_to_cylinder_map[WORST_CASE_NUM_SLOTS];
 uint64_t lru_table[WORST_CASE_NUM_SLOTS];
 
@@ -153,6 +154,8 @@ int seek_release;
 bool cyl_load_needed = false;
 bool seeks_throttled = false;
 
+uint32_t local_leds = 0;
+
 /* Logging */
 
 struct log_entry log[LOG_ENTRIES];
@@ -164,6 +167,7 @@ int log_next = 0;
 #define LOG_READ_UNDERFLOW 5
 #define LOG_DIRTY_FULL 3
 #define LOG_WRITE_OVERFLOW 4
+// #define LOG_CMD 6
 
 static inline uint64_t read_cntvct(void)
 {
@@ -209,11 +213,17 @@ void command_interrupt_handler(void* arg) {
 			// Don't complete a seek unless there is enough space in the dirty queue for every sector of a cylinder
 			if (dirty_queue_num_free() < (emu_header.heads * emu_header.sectors_per_track)) {
 				seeks_throttled = true;
+
+				local_leds |= 0x2;
+				leds_gpio[0] = local_leds;
 			}
 			
 			// Check if cylinder is already loaded
 			if (cylinder_map[current_cylinder] == -1) {
 				cyl_load_needed = true;
+
+				local_leds |= 0x4;
+				leds_gpio[0] = local_leds;
 			}
 
 			// If cylinder is already loaded and no throttling is needed, assert command complete and update last used timestamp,
@@ -242,6 +252,12 @@ void command_interrupt_handler(void* arg) {
         	}
         	command_interface[3] = 0;	// Clear the command pending bit
         }
+
+        // struct log_entry e;
+		// e.type = LOG_CMD;
+		// e.description[0] = command;
+		// log[log_next] = e;
+		// log_next = (log_next + 1) % LOG_ENTRIES;
     }
 }
 
@@ -508,6 +524,8 @@ int main() {
 	write_datapath[0] = 2;
 	read_datapath[0] = 0;
 
+	leds_gpio[0] = 0xf;
+
 	if (command_interface[1] & 0x2) {
 		uint32_t trash = command_interface[2];
 		(void) trash;
@@ -709,17 +727,26 @@ int main() {
     write_datapath[0] = 0x5;
     sector_timer[0] = 3;		// Enable
 
+	leds_gpio[0] = 0x0;
+	local_leds = 0;
+
     // Main Loop
     while(1) {
     	if (print_location) {
     		print_location = false;
-    		printf("C=%d  H=%d\r\n", current_cylinder, current_head);
+    		// printf("C=%d  H=%d\r\n", current_cylinder, current_head);
+			local_leds ^= 0x1;
+			leds_gpio[0] = local_leds;
     	}
 
 		// Check if we can complete a throttled seek
 		if (seeks_throttled) {
 			if (dirty_queue_num_free() >= (emu_header.heads * emu_header.sectors_per_track)) {
 				seeks_throttled = false;
+
+				local_leds &= ~0x2;
+				leds_gpio[0] = local_leds;
+
 				// If there are no other barriers to completing the seek
 				if (!cyl_load_needed) {
 					command_interface[3] = 0;
@@ -767,9 +794,13 @@ int main() {
 				cylinder_map[current_cylinder] = lru_slot;
 				slot_to_cylinder_map[lru_slot] = current_cylinder;			
 
-				printf("Slot %d load: %d -> %d\r\n", lru_slot, cylinder_unloaded, current_cylinder);
+//				printf("Slot %d load: %d -> %d\r\n", lru_slot, cylinder_unloaded, current_cylinder);
 
 				cyl_load_needed = false;
+
+				local_leds &= ~0x4;
+				leds_gpio[0] = local_leds;
+
 				// If there are no other barriers to completing the seek
 				if (!seeks_throttled) {
 					command_interface[3] = 0;
@@ -780,6 +811,10 @@ int main() {
 
     	// Write a dirty sector to SD if there is one
     	if (dirty_queue_head != dirty_queue_tail) {
+
+			local_leds |= 0x8;
+			leds_gpio[0] = local_leds;
+
     		struct chs dirty_sector = dirty_queue[dirty_queue_head];
     		dirty_queue_head = (dirty_queue_head + 1) % DIRTY_QUEUE_SIZE;
     		
@@ -793,7 +828,7 @@ int main() {
 
 				dirty_flags[dirty_flag_offset] = false;
 
-				printf("Dirty (%d,%d,%d)\r\n", dirty_sector.c, dirty_sector.h, dirty_sector.s);
+				// printf("Dirty (%d,%d,%d)\r\n", dirty_sector.c, dirty_sector.h, dirty_sector.s);
 				fr_seek = f_lseek(&image_file, emu_header.data_offset + (cylinder_size * dirty_sector.c) + (((dirty_sector.h * emu_header.sectors_per_track) + dirty_sector.s) * emu_header.sector_size_in_image));
 
 				if (fr_seek) {
@@ -811,7 +846,9 @@ int main() {
 
 			if (dirty_queue_head == dirty_queue_tail) {
 				f_sync(&image_file);
-				printf("Flushed\r\n");
+				// printf("Flushed\r\n");
+				local_leds &= ~0x8;
+				leds_gpio[0] = local_leds;
 			}
     	}
 
@@ -819,17 +856,20 @@ int main() {
     		struct log_entry e = log[log_oldest];
     		log_oldest = (log_oldest + 1) % LOG_ENTRIES;
 
-    		if (e.type == LOG_WRITE_MISSED) {
-    			printf("Write missed (%d)\r\n", e.description[0]);
-    		} else if (e.type == LOG_WRITE_OVERFLOW) {
-    			printf("Write FIFO overflow (%d)\r\n", e.description[0]);
-    		} else if (e.type == LOG_READ_MISSED) {
-    			printf("Read deadline missed (%d, %d)\r\n", e.description[0], e.description[1]);
-    		} else if (e.type == LOG_READ_UNDERFLOW) {
-    			printf("Read underflow (%d)\r\n", e.description[0]);
-    		} else if (e.type == LOG_DIRTY_FULL) {
-    			printf("Dirty queue full (%d,%d,%d)\r\n", e.description[0], e.description[1], e.description[2]);
-    		}
+    		// if (e.type == LOG_WRITE_MISSED) {
+    		// 	printf("Write missed (%d)\r\n", e.description[0]);
+    		// } else if (e.type == LOG_WRITE_OVERFLOW) {
+    		// 	printf("Write FIFO overflow (%d)\r\n", e.description[0]);
+    		// } else if (e.type == LOG_READ_MISSED) {
+    		// 	printf("Read deadline missed (%d, %d)\r\n", e.description[0], e.description[1]);
+    		// } else if (e.type == LOG_READ_UNDERFLOW) {
+    		// 	printf("Read underflow (%d)\r\n", e.description[0]);
+    		// } else if (e.type == LOG_DIRTY_FULL) {
+    		// 	printf("Dirty queue full (%d,%d,%d)\r\n", e.description[0], e.description[1], e.description[2]);
+    		// }
+			// else if (e.type == LOG_CMD) {
+    		// 	printf("Serial command (%x)\r\n", e.description[0]);
+    		// }
     	}
 
 

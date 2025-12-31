@@ -322,9 +322,13 @@ _SDA2_BASE_ = __sdata2_start + ((__sbss2_end - __sdata2_start) / 2 );
 
 _end = .;
 
-.bram_memory : {
+.bram_memory (NOLOAD) : {
 	*(.bram_memory)
 } > axi_bram
+
+.ddr_memory (NOLOAD) : {
+	*(.ddr_memory)
+} > psu_ddr_0_MEM_0
 
 }
 
