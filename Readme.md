@@ -1,6 +1,6 @@
 # ESDI Disk Emulator
 
-This is a work in progress emulator of Enhanced Small Disk Interface (ESDI) hard drives. The drive image is stored on an SD card. The current implementation is based on a Zynq Ultrascale FPGA, but ought to be easily adapted to Zynq 7000 (adapting cache coherency will be the trickiest part most likely).
+This is a work in progress emulator of Enhanced Small Disk Interface (ESDI) hard drives. The drive image is stored on an SD card. The current implementation is based on a Zynq Ultrascale FPGA, but ought to be easily adapted to Zynq 7000.
 
 ## Technical Overview
 
@@ -8,7 +8,7 @@ I have attempted to keep most logic in the processor's firmware within reason. T
 * Deserializing commands received over the ESDI serial command interface and serializing responses.
 * Keeping track of the rotation of the disk, generating index and sector pulses when appropriate.
 * Serializing read data and sending it to the controller.
-* Deserializing write data from the controller and muxing it with read data in accordance with the write gate signal.
+* Deserializing write data from the controller and muxing it with loopbacked read data in accordance with the write gate signal.
 * Using DMA to read and write sectors to DDR memory.
 
 The processor is responsible for the following:
@@ -19,19 +19,23 @@ The processor is responsible for the following:
 * Keeping track of whether the drive is selected.
 * Handling commands and responding to queries received on the serial command interface.
 * Committing dirty sectors back to the SD card.
-* Loading cylinders from the SD card into DDR memory when the controller seeks to a cylinder not already loaded. (This is not yet implemented)
+* Loading cylinders from the SD card into DDR memory when the controller seeks to a cylinder not already loaded.
+* Slowing down the speed of seeks if the controller is writing faster than we can save to the SD card.
 
 ## Project Generation
 
 1. Open Vivado, in the TCL console, change to the `fpga` directory of this repo, and run `source esdi_emulator.tcl`
 2. Generate bitstream
-3. Export hardware (no need to include bitstream) as `fpga/esdi_emulator/top.xsa`
+3. Export hardware as `fpga/esdi_emulator/top.xsa`. Include the bitstream if you want to boot the Zynq part from SD, i.e. generate a `BOOT.BIN` file
 4. Open the Software Command Line Tool (`xsct%` prompt)
 5. Change to `firmware` directory, and run `source platform.tcl`
 6. Open (Classic) Vitis IDE with workspace set to `firmware`
 7. Choose `File > Import...`, choose to import from a git repository, choose to import from existing local repo,
 choose the repo name from the list, choose `Import existing Eclipse projects`, select the `firmware` directory from the tree,
-ensure that `esdi_emulator`, `esdi_emulator_system`, and `esdi_emulator_platform`, Finish.
+ensure that `esdi_emulator_app`, `esdi_emulator_app_system`, and `esdi_emulator`, Finish.
+8. Build `esdi_emulator_app`.
+9. To debug over JTAG, select the `esdi_emulator_app` project and then create a new debug configuration. Under "Target Setup" select the bitstream file, vivado saves it as `fpga/esdi_emulator/esdi_emulator.runs/impl_1/top.bit`. Then press debug and Vitis will program the FPGA and download the FSBL and the application ELFs.
+10. To boot from the SD card, build the `esdi_emulator_app_system` project and the copy the file at `firmware/esdi_emulator_app_system/Debug/sd_card/BOOT.BIN` to a SD card formatted as FAT32.
 
 ## License
 
